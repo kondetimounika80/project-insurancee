@@ -1,65 +1,30 @@
-node {
-    def mavenHome
-    def mavenCMD
-    def docker
-    def dockerCMD
-    def tagName
+node{
+    stage('git checjout')
+    {
+        git branch: 'master', url: 'https://github.com/kondetimounika80/insure-me.git'
+    }
+
+    stage('build'){
     
-    stage('prepare environment'){
-        echo 'initialize the variables'
-        mavenHome = tool name: 'myMaven' , type: 'maven'
-        mavenCMD = "${mavenHome}/bin/mvn"
-        docker = tool name: 'myDocker' , type: 'org.jenkinsci.plugins.docker.commons.tools.DockerTool'
-        dockerCMD = "${docker}/bin/docker"
-        tagName="3.0"
+    sh 'mvn clean package'
     }
-    stage('code checkout'){
-        try{
-        echo 'code checkout'
-        git 'https://github.com/kondetimounika/insure-me.git'
-        }
-        catch(Exception e){
-            echo 'exception occur in stage code checkout'
-            currentBuild.result = "FAILURE"
-            emailext body: '''Dear All,
-            The jenkins job ${JOB_NAME} is failed. please look into the ${BUILD_NUMBER}''', subject: 'job ${JOB_NAME} ${BUILD_NUMBER} is failed', to: 'niladrimondal.mondal@gmail.com'
-        }
+    stage('dockerimagebuild')
+    {
+    sh 'sudo docker build -t kondetimounika/insureme:1.0 .'
+   
     }
-    stage('Build the application'){
-        echo ' clean and compile and test package'
-        //sh 'mvn clean package'
-        sh "${mavenCMD} clean package"
-    }
+    stage('docker image push to registry')
+    {
     
-    stage('publish test reports'){
-        publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: '/var/lib/jenkins/workspace/demo/target/surefire-reports', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
-    }
+    withCredentials([string(credentialsId: 'docker-password', variable: 'docker')]) {
+        sh 'docker login -u kondetimounika -p ${docker}'
+        sh 'docker push kondetimounika/insureme:1.0'
     
-    stage ('containerize the application'){
-        try{
-        echo 'build the docker image'
-        // if you get permission denied issue
-        //sudo usermod -a -G docker jenkins
-        //restart Jenkins
-        //or add sudoers file below line
-        //jenkins ALL=(ALL) NOPASSWD:ALL
-        sh "${dockerCMD} build -t kondetimounika/insureme:${tagName} ."
-        }
-        catch(Exception e){
-            echo 'exception occur in stage code checkout'
-            currentBuild.result = "FAILURE"
-            emailext body: '''Dear All,
-            The jenkins job ${JOB_NAME} is failed. please look into the ${BUILD_NUMBER}''', subject: 'job ${JOB_NAME} ${BUILD_NUMBER} is failed', to: 'niladrimondal.mondal@gmail.com'
-        }
+}
     }
-    stage ('push docker image to dockerhub')
-    echo 'pushing the docker image to DockerHub'
-    withCredentials([string(credentialsId: 'docker-password', variable: 'DockerPassword')]) {
-    sh "${dockerCMD} login -u kondetimounika -p ${DockerPassword}"
-    sh "${dockerCMD} push kondetimounika/insureme:${tagName}"
-    }
-    stage ('Configure and Deploy to the test-server'){
-        ansiblePlaybook become: true, credentialsId: 'ansiblekey', disableHostKeyChecking: true, installation: 'myAnsible', inventory: '/etc/ansible/hosts', playbook: 'ansible-playbook.yml'
-    }
+    stage('deploy')
+    {
     
+       ansiblePlaybook become: true, credentialsId: 'ansiblekey', disableHostKeyChecking: true, installation: 'myAnsible', inventory: '/etc/ansible/hosts', playbook: 'ansible-playbook.yml' 
+    }
 }
